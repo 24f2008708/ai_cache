@@ -23,6 +23,11 @@ function getLatency(startTime) {
   return diff <= 0 ? 1 : diff;
 }
 
+// Helper: normalize query for exact match caching
+function normalizeQuery(query) {
+  return query.trim().toLowerCase();
+}
+
 // --------------------
 // ROOT CHECK
 // --------------------
@@ -47,11 +52,13 @@ app.post("/", (req, res) => {
 
   stats.totalRequests++;
 
+  const key = normalizeQuery(query);
+
   // Exact Match Cache
-  if (cache[query]) {
+  if (cache[key]) {
     stats.cacheHits++;
     return res.json({
-      answer: cache[query],
+      answer: cache[key],
       cached: true,
       latency: getLatency(startTime)
     });
@@ -60,7 +67,7 @@ app.post("/", (req, res) => {
   // Simulated LLM response
   const generatedAnswer = `Summary of document: ${query}`;
 
-  cache[query] = generatedAnswer;
+  cache[key] = generatedAnswer;
   stats.cacheMisses++;
 
   res.json({
