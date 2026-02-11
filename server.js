@@ -4,35 +4,22 @@ import crypto from "crypto";
 const app = express();
 app.use(express.json());
 
-// ===============================
-// CONFIG
-// ===============================
 const MAX_CACHE_SIZE = 50;
-const TTL = 24 * 60 * 60 * 1000; // 24 hours
-
-// ===============================
-// CACHE STRUCTURE
-// ===============================
-// key -> {
-//   answer,
-//   timestamp
-// }
+const TTL = 24 * 60 * 60 * 1000;
 
 const cache = new Map();
 
-// ===============================
-// ANALYTICS
-// ===============================
 let totalRequests = 0;
 let cacheHits = 0;
 let cacheMisses = 0;
 
-// ===============================
-// HELPER: CLEAN EXPIRED ENTRIES
-// ===============================
+// ✅ IMPORTANT FIX: health route
+app.get("/", (req, res) => {
+  res.json({ status: "Server is running" });
+});
+
 function cleanExpired() {
   const now = Date.now();
-
   for (const [key, value] of cache.entries()) {
     if (now - value.timestamp > TTL) {
       cache.delete(key);
@@ -40,9 +27,6 @@ function cleanExpired() {
   }
 }
 
-// ===============================
-// HELPER: ENFORCE LRU
-// ===============================
 function enforceLRU() {
   if (cache.size > MAX_CACHE_SIZE) {
     const oldestKey = cache.keys().next().value;
@@ -50,35 +34,26 @@ function enforceLRU() {
   }
 }
 
-// ===============================
-// MAIN ENDPOINT
-// ===============================
 app.post("/", async (req, res) => {
   const start = Date.now();
   totalRequests++;
 
   const query = req.body.query;
-
   if (!query) {
     return res.status(400).json({ error: "Query required" });
   }
 
   cleanExpired();
 
-  // IMPORTANT: hash RAW query EXACTLY
   const key = crypto.createHash("md5").update(query).digest("hex");
 
-  // ===============================
-  // CACHE HIT
-  // ===============================
   if (cache.has(key)) {
     cacheHits++;
 
     const cached = cache.get(key);
 
-    // LRU update (move to end)
     cache.delete(key);
-    cache.set(key, cached);
+    cache.set(key, cached); // LRU refresh
 
     return res.json({
       answer: cached.answer,
@@ -87,12 +62,8 @@ app.post("/", async (req, res) => {
     });
   }
 
-  // ===============================
-  // CACHE MISS
-  // ===============================
   cacheMisses++;
 
-  // Simulated AI response
   const answer = `AI response for: ${query}`;
 
   cache.set(key, {
@@ -102,16 +73,13 @@ app.post("/", async (req, res) => {
 
   enforceLRU();
 
-  return res.json({
+  res.json({
     answer,
     fromCache: false,
     latency: Date.now() - start
   });
 });
 
-// ===============================
-// GET ANALYTICS
-// ===============================
 app.get("/analytics", (req, res) => {
   const hitRate =
     totalRequests === 0 ? 0 : cacheHits / totalRequests;
@@ -136,22 +104,17 @@ app.get("/analytics", (req, res) => {
   });
 });
 
-// ===============================
-// RESET ANALYTICS
-// ===============================
 app.post("/analytics", (req, res) => {
   totalRequests = 0;
   cacheHits = 0;
   cacheMisses = 0;
   cache.clear();
 
-  res.json({
-    message: "Analytics reset successful"
-  });
+  res.json({ message: "Analytics reset successful" });
 });
 
-// ===============================
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
