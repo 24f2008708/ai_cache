@@ -12,14 +12,14 @@ app.use(cors());
 // CONFIG
 // ==============================
 const TTL = 24 * 60 * 60 * 1000; // 24 hours
-const MAX_CACHE_SIZE = 2000; // LRU limit
+const MAX_CACHE_SIZE = 2000;
 const MODEL_COST_PER_1M = 1.0;
 const AVG_TOKENS = 3000;
 
 // ==============================
 // In-Memory LRU Cache
 // ==============================
-const cache = new Map(); // preserves insertion order (for LRU)
+const cache = new Map();
 
 const stats = {
   totalRequests: 0,
@@ -47,7 +47,7 @@ function generateKey(query) {
 function evictIfNeeded() {
   if (cache.size > MAX_CACHE_SIZE) {
     const firstKey = cache.keys().next().value;
-    cache.delete(firstKey); // remove LRU
+    cache.delete(firstKey);
   }
 }
 
@@ -82,16 +82,15 @@ app.post("/", async (req, res) => {
   const normalized = normalizeQuery(query);
   const cacheKey = generateKey(normalized);
 
-  // ---- CHECK CACHE ----
+  // ---------- CACHE CHECK ----------
   if (cache.has(cacheKey)) {
     const entry = cache.get(cacheKey);
 
-    // TTL check
     if (Date.now() - entry.timestamp < TTL) {
       stats.cacheHits++;
       stats.totalTokensSaved += AVG_TOKENS;
 
-      // Refresh position for LRU
+      // Refresh LRU position
       cache.delete(cacheKey);
       cache.set(cacheKey, entry);
 
@@ -102,14 +101,14 @@ app.post("/", async (req, res) => {
         cacheKey
       });
     } else {
-      cache.delete(cacheKey); // expired
+      cache.delete(cacheKey);
     }
   }
 
-  // ---- CACHE MISS ----
+  // ---------- CACHE MISS ----------
   stats.cacheMisses++;
 
-  // Simulated LLM delay
+  // Simulated API delay
   await new Promise(resolve => setTimeout(resolve, 1200));
 
   const generatedAnswer = `Summary of document: ${query}`;
@@ -130,9 +129,9 @@ app.post("/", async (req, res) => {
 });
 
 // ==============================
-// ANALYTICS
+// ANALYTICS FUNCTION
 // ==============================
-app.get("/analytics", (req, res) => {
+function buildAnalytics() {
   const hitRate =
     stats.totalRequests === 0
       ? 0
@@ -140,7 +139,7 @@ app.get("/analytics", (req, res) => {
 
   const savings = calculateCostSavings();
 
-  res.json({
+  return {
     hitRate,
     totalRequests: stats.totalRequests,
     cacheHits: stats.cacheHits,
@@ -153,7 +152,18 @@ app.get("/analytics", (req, res) => {
       "LRU eviction",
       "TTL expiration (24h)"
     ]
-  });
+  };
+}
+
+// ==============================
+// ANALYTICS ENDPOINTS
+// ==============================
+app.get("/analytics", (req, res) => {
+  res.json(buildAnalytics());
+});
+
+app.post("/analytics", (req, res) => {
+  res.json(buildAnalytics());
 });
 
 // ==============================
