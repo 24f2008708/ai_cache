@@ -1,0 +1,14 @@
+{
+  "name": "ai-cache",
+  "version": "1.0.0",
+  "description": "AI Caching System with Analytics",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "Harshit",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
