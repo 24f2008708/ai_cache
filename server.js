@@ -18,6 +18,12 @@ const stats = {
   cacheMisses: 0
 };
 
+// Helper to ensure latency is never 0
+function getLatency(startTime) {
+  const diff = Date.now() - startTime;
+  return diff <= 0 ? 1 : diff;
+}
+
 // --------------------
 // Root
 // --------------------
@@ -35,7 +41,7 @@ app.post("/ask", (req, res) => {
   if (!question) {
     return res.status(400).json({
       error: "Question is required",
-      latency: Date.now() - startTime
+      latency: getLatency(startTime)
     });
   }
 
@@ -46,7 +52,7 @@ app.post("/ask", (req, res) => {
     return res.json({
       answer: cache[question],
       cached: true,
-      latency: Date.now() - startTime
+      latency: getLatency(startTime)
     });
   }
 
@@ -58,7 +64,7 @@ app.post("/ask", (req, res) => {
   res.json({
     answer: generatedAnswer,
     cached: false,
-    latency: Date.now() - startTime
+    latency: getLatency(startTime)
   });
 });
 
@@ -97,7 +103,7 @@ app.get("/analytics", (req, res) => {
   res.json({
     response: buildAnalytics(),
     cached: false,
-    latency: Date.now() - startTime
+    latency: getLatency(startTime)
   });
 });
 
@@ -107,7 +113,7 @@ app.post("/analytics", (req, res) => {
   res.json({
     response: buildAnalytics(),
     cached: false,
-    latency: Date.now() - startTime
+    latency: getLatency(startTime)
   });
 });
 
@@ -115,3 +121,4 @@ app.post("/analytics", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Caching server running on port ${PORT}`);
 });
+
