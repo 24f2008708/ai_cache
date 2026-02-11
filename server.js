@@ -19,14 +19,14 @@ const stats = {
 };
 
 // --------------------
-// Home Route
+// Root
 // --------------------
 app.get("/", (req, res) => {
   res.send("AI Cache Server is running 🚀");
 });
 
 // --------------------
-// Ask Endpoint (Caching Logic)
+// ASK ENDPOINT
 // --------------------
 app.post("/ask", (req, res) => {
   const question = req.body.question;
@@ -37,7 +37,6 @@ app.post("/ask", (req, res) => {
 
   stats.totalRequests++;
 
-  // If in cache
   if (cache[question]) {
     stats.cacheHits++;
     return res.json({
@@ -46,7 +45,6 @@ app.post("/ask", (req, res) => {
     });
   }
 
-  // Simulated AI response
   const generatedAnswer = `AI response for: ${question}`;
 
   cache[question] = generatedAnswer;
@@ -59,9 +57,9 @@ app.post("/ask", (req, res) => {
 });
 
 // --------------------
-// Analytics Helper
+// Analytics Data Builder
 // --------------------
-function getAnalytics() {
+function buildAnalytics() {
   const hitRate =
     stats.totalRequests === 0
       ? 0
@@ -85,22 +83,22 @@ function getAnalytics() {
 }
 
 // --------------------
-// Analytics Endpoints
+// ANALYTICS (GET + POST)
 // --------------------
 app.get("/analytics", (req, res) => {
   res.json({
-    response: getAnalytics()
+    response: buildAnalytics(),
+    cached: false
   });
 });
 
 app.post("/analytics", (req, res) => {
   res.json({
-    response: getAnalytics()
+    response: buildAnalytics(),
+    cached: false
   });
 });
 
-// --------------------
-// Start Server
 // --------------------
 app.listen(PORT, () => {
   console.log(`🚀 Caching server running on port ${PORT}`);
