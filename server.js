@@ -29,10 +29,14 @@ app.get("/", (req, res) => {
 // ASK ENDPOINT
 // --------------------
 app.post("/ask", (req, res) => {
+  const startTime = Date.now();
   const question = req.body.question;
 
   if (!question) {
-    return res.status(400).json({ error: "Question is required" });
+    return res.status(400).json({
+      error: "Question is required",
+      latency: Date.now() - startTime
+    });
   }
 
   stats.totalRequests++;
@@ -41,7 +45,8 @@ app.post("/ask", (req, res) => {
     stats.cacheHits++;
     return res.json({
       answer: cache[question],
-      cached: true
+      cached: true,
+      latency: Date.now() - startTime
     });
   }
 
@@ -52,12 +57,13 @@ app.post("/ask", (req, res) => {
 
   res.json({
     answer: generatedAnswer,
-    cached: false
+    cached: false,
+    latency: Date.now() - startTime
   });
 });
 
 // --------------------
-// Analytics Data Builder
+// Analytics Builder
 // --------------------
 function buildAnalytics() {
   const hitRate =
@@ -86,16 +92,22 @@ function buildAnalytics() {
 // ANALYTICS (GET + POST)
 // --------------------
 app.get("/analytics", (req, res) => {
+  const startTime = Date.now();
+
   res.json({
     response: buildAnalytics(),
-    cached: false
+    cached: false,
+    latency: Date.now() - startTime
   });
 });
 
 app.post("/analytics", (req, res) => {
+  const startTime = Date.now();
+
   res.json({
     response: buildAnalytics(),
-    cached: false
+    cached: false,
+    latency: Date.now() - startTime
   });
 });
 
