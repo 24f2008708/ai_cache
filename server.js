@@ -23,11 +23,6 @@ function getLatency(startTime) {
   return diff <= 0 ? 1 : diff;
 }
 
-// Helper: normalize query for exact match caching
-function normalizeQuery(query) {
-  return query.trim().toLowerCase();
-}
-
 // --------------------
 // ROOT CHECK
 // --------------------
@@ -44,7 +39,7 @@ app.post("/", (req, res) => {
 
   if (!query) {
     return res.status(400).json({
-      response: { error: "Query is required" }, // wrapped in "response"
+      response: { error: "Query is required" },
       cached: false,
       latency: getLatency(startTime)
     });
@@ -52,13 +47,11 @@ app.post("/", (req, res) => {
 
   stats.totalRequests++;
 
-  const key = normalizeQuery(query);
-
-  // Exact Match Cache
-  if (cache[key]) {
+  // Exact match caching using the query string as-is
+  if (cache[query] !== undefined) {
     stats.cacheHits++;
     return res.json({
-      answer: cache[key],
+      answer: cache[query],
       cached: true,
       latency: getLatency(startTime)
     });
@@ -67,7 +60,8 @@ app.post("/", (req, res) => {
   // Simulated LLM response
   const generatedAnswer = `Summary of document: ${query}`;
 
-  cache[key] = generatedAnswer;
+  // Store exact query string in cache
+  cache[query] = generatedAnswer;
   stats.cacheMisses++;
 
   res.json({
@@ -108,9 +102,8 @@ function buildAnalytics() {
 // --------------------
 app.get("/analytics", (req, res) => {
   const startTime = Date.now();
-  const analytics = buildAnalytics();
   res.json({
-    response: analytics, // wrapped in "response"
+    response: buildAnalytics(),
     cached: false,
     latency: getLatency(startTime)
   });
@@ -118,9 +111,8 @@ app.get("/analytics", (req, res) => {
 
 app.post("/analytics", (req, res) => {
   const startTime = Date.now();
-  const analytics = buildAnalytics();
   res.json({
-    response: analytics, // wrapped in "response"
+    response: buildAnalytics(),
     cached: false,
     latency: getLatency(startTime)
   });
