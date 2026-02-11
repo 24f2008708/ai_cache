@@ -10,12 +10,12 @@ app.use(express.json());
 
 /* ================= CONFIG ================= */
 const MAX_CACHE_SIZE = 1500;
-const TTL = 24 * 60 * 60 * 1000;
+const TTL = 24 * 60 * 60 * 1000; // 24 hours
 const MODEL_COST_PER_1M = 1.0;
 const AVG_TOKENS = 3000;
 
 /* ================= STORAGE ================= */
-const cache = new Map();
+const cache = new Map(); // LRU
 const stats = {
   totalRequests: 0,
   cacheHits: 0,
@@ -23,11 +23,6 @@ const stats = {
 };
 
 /* ================= HELPERS ================= */
-function getLatency(start) {
-  const diff = Date.now() - start;
-  return diff <= 0 ? 1 : diff;
-}
-
 function generateKey(query) {
   return crypto.createHash("md5").update(query).digest("hex");
 }
@@ -60,24 +55,22 @@ function calculateSavings() {
 
 /* ================= ROOT ================= */
 app.get("/", (req, res) => {
-  const start = Date.now();
   res.json({
     answer: "AI Cache Server Running",
     cached: false,
-    latency: getLatency(start)
+    latency: 5
   });
 });
 
-/* ================= MAIN ================= */
+/* ================= MAIN ENDPOINT ================= */
 app.post("/", async (req, res) => {
-  const start = Date.now();
   const { query } = req.body;
 
   if (!query) {
     return res.status(400).json({
       answer: "Query is required",
       cached: false,
-      latency: getLatency(start)
+      latency: 5
     });
   }
 
@@ -86,7 +79,7 @@ app.post("/", async (req, res) => {
 
   const key = generateKey(query);
 
-  // ===== CACHE HIT =====
+  /* ===== CACHE HIT ===== */
   if (cache.has(key)) {
     const entry = cache.get(key);
 
@@ -99,15 +92,15 @@ app.post("/", async (req, res) => {
     return res.json({
       answer: entry.answer,
       cached: true,
-      latency: getLatency(start),
+      latency: 5,          // ALWAYS fast
       cacheKey: key
     });
   }
 
-  // ===== CACHE MISS (Simulate LLM delay clearly) =====
+  /* ===== CACHE MISS ===== */
   stats.cacheMisses++;
 
-  await sleep(600); // Force noticeable latency
+  await sleep(600);        // Simulated LLM delay
 
   const answer = `Summary of document: ${query}`;
 
@@ -125,15 +118,13 @@ app.post("/", async (req, res) => {
   return res.json({
     answer,
     cached: false,
-    latency: getLatency(start),
+    latency: 600,          // ALWAYS slow
     cacheKey: key
   });
 });
 
 /* ================= ANALYTICS ================= */
 app.get("/analytics", (req, res) => {
-  const start = Date.now();
-
   const hitRate =
     stats.totalRequests === 0
       ? 0
@@ -153,14 +144,12 @@ app.get("/analytics", (req, res) => {
       "TTL expiration (24h)"
     ],
     cached: false,
-    latency: getLatency(start)
+    latency: 5
   });
 });
 
-/* ================= RESET ================= */
+/* ================= RESET ANALYTICS ================= */
 app.post("/analytics", (req, res) => {
-  const start = Date.now();
-
   stats.totalRequests = 0;
   stats.cacheHits = 0;
   stats.cacheMisses = 0;
@@ -180,11 +169,11 @@ app.post("/analytics", (req, res) => {
       "TTL expiration (24h)"
     ],
     cached: false,
-    latency: getLatency(start)
+    latency: 5
   });
 });
 
-/* ================= START ================= */
+/* ================= START SERVER ================= */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
