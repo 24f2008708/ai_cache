@@ -83,10 +83,11 @@ function buildAnalytics() {
 // ROOT
 // ==============================
 app.get("/", (req, res) => {
+  const startTime = Date.now();
   res.json({
     answer: "AI Cache Server is running 🚀",
     cached: false,
-    latency: 1
+    latency: getLatency(startTime)
   });
 });
 
@@ -118,7 +119,7 @@ app.post("/", async (req, res) => {
       stats.cacheHits++;
       stats.totalTokensSaved += AVG_TOKENS;
 
-      // Refresh LRU
+      // Refresh LRU position
       cache.delete(cacheKey);
       cache.set(cacheKey, entry);
 
@@ -159,16 +160,20 @@ app.post("/", async (req, res) => {
 // ANALYTICS ENDPOINTS
 // ==============================
 app.get("/analytics", (req, res) => {
+  const startTime = Date.now();
   res.json({
     response: buildAnalytics(),
-    cached: false
+    cached: false,
+    latency: getLatency(startTime)
   });
 });
 
 app.post("/analytics", (req, res) => {
+  const startTime = Date.now();
   res.json({
     response: buildAnalytics(),
-    cached: false
+    cached: false,
+    latency: getLatency(startTime)
   });
 });
 
