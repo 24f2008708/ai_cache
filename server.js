@@ -18,47 +18,48 @@ const stats = {
   cacheMisses: 0
 };
 
-// Helper to ensure latency is never 0
 function getLatency(startTime) {
   const diff = Date.now() - startTime;
   return diff <= 0 ? 1 : diff;
 }
 
 // --------------------
-// Root
+// ROOT CHECK
 // --------------------
 app.get("/", (req, res) => {
   res.send("AI Cache Server is running 🚀");
 });
 
 // --------------------
-// ASK ENDPOINT
+// MAIN ENDPOINT (POST /)
 // --------------------
-app.post("/ask", (req, res) => {
+app.post("/", (req, res) => {
   const startTime = Date.now();
-  const question = req.body.question;
+  const { query } = req.body;
 
-  if (!question) {
+  if (!query) {
     return res.status(400).json({
-      error: "Question is required",
+      error: "Query is required",
       latency: getLatency(startTime)
     });
   }
 
   stats.totalRequests++;
 
-  if (cache[question]) {
+  // Exact Match Cache
+  if (cache[query]) {
     stats.cacheHits++;
     return res.json({
-      answer: cache[question],
+      answer: cache[query],
       cached: true,
       latency: getLatency(startTime)
     });
   }
 
-  const generatedAnswer = `AI response for: ${question}`;
+  // Simulated LLM response
+  const generatedAnswer = `Summary of document: ${query}`;
 
-  cache[question] = generatedAnswer;
+  cache[query] = generatedAnswer;
   stats.cacheMisses++;
 
   res.json({
@@ -95,13 +96,12 @@ function buildAnalytics() {
 }
 
 // --------------------
-// ANALYTICS (GET + POST)
+// ANALYTICS
 // --------------------
 app.get("/analytics", (req, res) => {
   const startTime = Date.now();
-
   res.json({
-    response: buildAnalytics(),
+    ...buildAnalytics(),
     cached: false,
     latency: getLatency(startTime)
   });
@@ -109,9 +109,8 @@ app.get("/analytics", (req, res) => {
 
 app.post("/analytics", (req, res) => {
   const startTime = Date.now();
-
   res.json({
-    response: buildAnalytics(),
+    ...buildAnalytics(),
     cached: false,
     latency: getLatency(startTime)
   });
