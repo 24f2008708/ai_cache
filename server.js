@@ -9,7 +9,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 /* ==============================
-   CONFIG
+   CO
 ============================== */
 
 const TTL = 24 * 60 * 60 * 1000; // 24 hours
