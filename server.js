@@ -36,10 +36,6 @@ function getLatency(start) {
   return diff <= 0 ? 1 : diff;
 }
 
-function normalizeQuery(query) {
-  return query.trim().toLowerCase();
-}
-
 function generateKey(query) {
   return crypto.createHash("md5").update(query).digest("hex");
 }
@@ -108,8 +104,7 @@ app.post("/", async (req, res) => {
 
   stats.totalRequests++;
 
-  const normalized = normalizeQuery(query);
-  const cacheKey = generateKey(normalized);
+  const cacheKey = generateKey(query);
 
   // -------- CACHE HIT --------
   if (cache.has(cacheKey)) {
@@ -119,7 +114,7 @@ app.post("/", async (req, res) => {
       stats.cacheHits++;
       stats.totalTokensSaved += AVG_TOKENS;
 
-      // Refresh LRU position
+      // Refresh LRU
       cache.delete(cacheKey);
       cache.set(cacheKey, entry);
 
