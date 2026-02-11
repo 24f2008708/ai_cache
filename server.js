@@ -83,7 +83,11 @@ function buildAnalytics() {
 // ROOT
 // ==============================
 app.get("/", (req, res) => {
-  res.send("AI Cache Server is running 🚀");
+  res.json({
+    answer: "AI Cache Server is running 🚀",
+    cached: false,
+    latency: 1
+  });
 });
 
 // ==============================
@@ -106,7 +110,7 @@ app.post("/", async (req, res) => {
   const normalized = normalizeQuery(query);
   const cacheKey = generateKey(normalized);
 
-  // ---- CACHE HIT ----
+  // -------- CACHE HIT --------
   if (cache.has(cacheKey)) {
     const entry = cache.get(cacheKey);
 
@@ -129,7 +133,7 @@ app.post("/", async (req, res) => {
     }
   }
 
-  // ---- CACHE MISS ----
+  // -------- CACHE MISS --------
   stats.cacheMisses++;
 
   await new Promise(resolve => setTimeout(resolve, 1200));
@@ -156,13 +160,15 @@ app.post("/", async (req, res) => {
 // ==============================
 app.get("/analytics", (req, res) => {
   res.json({
-    response: buildAnalytics()
+    response: buildAnalytics(),
+    cached: false
   });
 });
 
 app.post("/analytics", (req, res) => {
   res.json({
-    response: buildAnalytics()
+    response: buildAnalytics(),
+    cached: false
   });
 });
 
