@@ -32,6 +32,10 @@ function generateKey(query) {
   return crypto.createHash("md5").update(query).digest("hex");
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function cleanupExpired() {
   const now = Date.now();
   for (let [key, value] of cache.entries()) {
@@ -64,7 +68,7 @@ app.get("/", (req, res) => {
   });
 });
 
-/* ================= MAIN ENDPOINT ================= */
+/* ================= MAIN ================= */
 app.post("/", async (req, res) => {
   const start = Date.now();
   const { query } = req.body;
@@ -82,7 +86,7 @@ app.post("/", async (req, res) => {
 
   const key = generateKey(query);
 
-  // EXACT MATCH CACHE
+  // ===== CACHE HIT =====
   if (cache.has(key)) {
     const entry = cache.get(key);
 
@@ -100,8 +104,10 @@ app.post("/", async (req, res) => {
     });
   }
 
-  // Simulated LLM delay
-  await new Promise(resolve => setTimeout(resolve, 500));
+  // ===== CACHE MISS (Simulate LLM delay clearly) =====
+  stats.cacheMisses++;
+
+  await sleep(600); // Force noticeable latency
 
   const answer = `Summary of document: ${query}`;
 
@@ -116,9 +122,7 @@ app.post("/", async (req, res) => {
     timestamp: Date.now()
   });
 
-  stats.cacheMisses++;
-
-  res.json({
+  return res.json({
     answer,
     cached: false,
     latency: getLatency(start),
@@ -153,7 +157,7 @@ app.get("/analytics", (req, res) => {
   });
 });
 
-/* ================= RESET ANALYTICS ================= */
+/* ================= RESET ================= */
 app.post("/analytics", (req, res) => {
   const start = Date.now();
 
