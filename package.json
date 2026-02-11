@@ -2,6 +2,7 @@
   "name": "ai-cache",
   "version": "1.0.0",
   "description": "AI Caching System with Analytics",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
