@@ -1,3 +1,83 @@
+const express = require("express");
+const cors = require("cors");
+const crypto = require("crypto");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(cors());
+
+// ================= CONFIG =================
+const TTL = 24 * 60 * 60 * 1000;
+const MAX_CACHE_SIZE = 2000;
+const MODEL_COST_PER_1M = 1.0;
+const AVG_TOKENS = 3000;
+
+// ================= CACHE =================
+const cache = new Map();
+
+const stats = {
+  totalRequests: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  totalTokensSaved: 0
+};
+
+// ================= HELPERS =================
+function getLatency(start) {
+  const diff = Date.now() - start;
+  return diff <= 0 ? 1 : diff;
+}
+
+function generateKey(body) {
+  return crypto.createHash("md5").update(JSON.stringify(body)).digest("hex");
+}
+
+function evictIfNeeded() {
+  if (cache.size > MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
+}
+
+function calculateCostSavings() {
+  return (stats.totalTokensSaved / 1_000_000) * MODEL_COST_PER_1M;
+}
+
+function buildAnalytics() {
+  const hitRate =
+    stats.totalRequests === 0
+      ? 0
+      : stats.cacheHits / stats.totalRequests;
+
+  return {
+    hitRate,
+    totalRequests: stats.totalRequests,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.cacheMisses,
+    cacheSize: cache.size,
+    costSavings: Number(calculateCostSavings().toFixed(2)),
+    savingsPercent: Number((hitRate * 100).toFixed(2)),
+    strategies: [
+      "exact match caching (MD5 hash)",
+      "LRU eviction",
+      "TTL expiration (24h)"
+    ]
+  };
+}
+
+// ================= ROOT =================
+app.get("/", (req, res) => {
+  const startTime = Date.now();
+  res.json({
+    answer: "AI Cache Server is running 🚀",
+    cached: false,
+    latency: getLatency(startTime)
+  });
+});
+
+// ================= MAIN ENDPOINT =================
 app.post("/", async (req, res) => {
   const startTime = Date.now();
   const { query } = req.body;
@@ -12,10 +92,8 @@ app.post("/", async (req, res) => {
 
   stats.totalRequests++;
 
-  // 🔥 EXACT MATCH ON FULL REQUEST BODY
-  const cacheKey = generateKey(JSON.stringify(req.body));
+  const cacheKey = generateKey(req.body);
 
-  // -------- CACHE HIT --------
   if (cache.has(cacheKey)) {
     const entry = cache.get(cacheKey);
 
@@ -37,7 +115,6 @@ app.post("/", async (req, res) => {
     }
   }
 
-  // -------- CACHE MISS --------
   stats.cacheMisses++;
 
   await new Promise(resolve => setTimeout(resolve, 1200));
@@ -57,4 +134,28 @@ app.post("/", async (req, res) => {
     latency: getLatency(startTime),
     cacheKey
   });
+});
+
+// ================= ANALYTICS =================
+app.get("/analytics", (req, res) => {
+  const startTime = Date.now();
+  res.json({
+    response: buildAnalytics(),
+    cached: false,
+    latency: getLatency(startTime)
+  });
+});
+
+app.post("/analytics", (req, res) => {
+  const startTime = Date.now();
+  res.json({
+    response: buildAnalytics(),
+    cached: false,
+    latency: getLatency(startTime)
+  });
+});
+
+// ================= START SERVER =================
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
