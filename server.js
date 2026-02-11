@@ -1,8 +1,22 @@
 const express = require("express");
+const cors = require("cors");
+
+
+// VERY IMPORTANT: put this BEFORE routes
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type"]
+}));
+
+
+app.use(express.json());
+
+
 const crypto = require("crypto");
 
 const app = express();
-app.use(express.json());
+
 
 /* ===============================
    LRU CACHE WITH TTL
