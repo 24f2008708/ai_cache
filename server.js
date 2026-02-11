@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -7,39 +8,70 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cors());
 
-// --------------------
-// In-Memory Cache
-// --------------------
-const cache = {};
+// ==============================
+// CONFIG
+// ==============================
+const TTL = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_CACHE_SIZE = 2000; // LRU limit
+const MODEL_COST_PER_1M = 1.0;
+const AVG_TOKENS = 3000;
+
+// ==============================
+// In-Memory LRU Cache
+// ==============================
+const cache = new Map(); // preserves insertion order (for LRU)
 
 const stats = {
   totalRequests: 0,
   cacheHits: 0,
-  cacheMisses: 0
+  cacheMisses: 0,
+  totalTokensSaved: 0
 };
 
-function getLatency(startTime) {
-  const diff = Date.now() - startTime;
+// ==============================
+// Helpers
+// ==============================
+function getLatency(start) {
+  const diff = Date.now() - start;
   return diff <= 0 ? 1 : diff;
 }
 
-// --------------------
-// ROOT CHECK
-// --------------------
+function normalizeQuery(query) {
+  return query.trim().toLowerCase();
+}
+
+function generateKey(query) {
+  return crypto.createHash("md5").update(query).digest("hex");
+}
+
+function evictIfNeeded() {
+  if (cache.size > MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey); // remove LRU
+  }
+}
+
+function calculateCostSavings() {
+  return (stats.totalTokensSaved / 1_000_000) * MODEL_COST_PER_1M;
+}
+
+// ==============================
+// ROOT
+// ==============================
 app.get("/", (req, res) => {
   res.send("AI Cache Server is running 🚀");
 });
 
-// --------------------
-// MAIN ENDPOINT (POST /)
-// --------------------
-app.post("/", (req, res) => {
+// ==============================
+// MAIN ENDPOINT
+// ==============================
+app.post("/", async (req, res) => {
   const startTime = Date.now();
   const { query } = req.body;
 
   if (!query) {
     return res.status(400).json({
-      response: { error: "Query is required" },
+      answer: "Query is required",
       cached: false,
       latency: getLatency(startTime)
     });
@@ -47,78 +79,85 @@ app.post("/", (req, res) => {
 
   stats.totalRequests++;
 
-  // Exact match caching using the query string as-is
-  if (cache[query] !== undefined) {
-    stats.cacheHits++;
-    return res.json({
-      answer: cache[query],
-      cached: true,
-      latency: getLatency(startTime)
-    });
+  const normalized = normalizeQuery(query);
+  const cacheKey = generateKey(normalized);
+
+  // ---- CHECK CACHE ----
+  if (cache.has(cacheKey)) {
+    const entry = cache.get(cacheKey);
+
+    // TTL check
+    if (Date.now() - entry.timestamp < TTL) {
+      stats.cacheHits++;
+      stats.totalTokensSaved += AVG_TOKENS;
+
+      // Refresh position for LRU
+      cache.delete(cacheKey);
+      cache.set(cacheKey, entry);
+
+      return res.json({
+        answer: entry.answer,
+        cached: true,
+        latency: getLatency(startTime),
+        cacheKey
+      });
+    } else {
+      cache.delete(cacheKey); // expired
+    }
   }
 
-  // Simulated LLM response
+  // ---- CACHE MISS ----
+  stats.cacheMisses++;
+
+  // Simulated LLM delay
+  await new Promise(resolve => setTimeout(resolve, 1200));
+
   const generatedAnswer = `Summary of document: ${query}`;
 
-  // Store exact query string in cache
-  cache[query] = generatedAnswer;
-  stats.cacheMisses++;
+  cache.set(cacheKey, {
+    answer: generatedAnswer,
+    timestamp: Date.now()
+  });
+
+  evictIfNeeded();
 
   res.json({
     answer: generatedAnswer,
     cached: false,
-    latency: getLatency(startTime)
+    latency: getLatency(startTime),
+    cacheKey
   });
 });
 
-// --------------------
-// Analytics Builder
-// --------------------
-function buildAnalytics() {
+// ==============================
+// ANALYTICS
+// ==============================
+app.get("/analytics", (req, res) => {
   const hitRate =
     stats.totalRequests === 0
       ? 0
-      : (stats.cacheHits / stats.totalRequests) * 100;
+      : stats.cacheHits / stats.totalRequests;
 
-  return {
+  const savings = calculateCostSavings();
+
+  res.json({
     hitRate,
     totalRequests: stats.totalRequests,
     cacheHits: stats.cacheHits,
     cacheMisses: stats.cacheMisses,
-    cacheSize: Object.keys(cache).length,
-    costSavings: stats.cacheHits * 0.002,
-    savingsPercent: hitRate,
+    cacheSize: cache.size,
+    costSavings: Number(savings.toFixed(2)),
+    savingsPercent: Number((hitRate * 100).toFixed(2)),
     strategies: [
-      "exact match caching",
-      "semantic similarity caching",
+      "exact match caching (MD5 hash)",
       "LRU eviction",
-      "TTL expiration"
+      "TTL expiration (24h)"
     ]
-  };
-}
-
-// --------------------
-// ANALYTICS ENDPOINTS
-// --------------------
-app.get("/analytics", (req, res) => {
-  const startTime = Date.now();
-  res.json({
-    response: buildAnalytics(),
-    cached: false,
-    latency: getLatency(startTime)
   });
 });
 
-app.post("/analytics", (req, res) => {
-  const startTime = Date.now();
-  res.json({
-    response: buildAnalytics(),
-    cached: false,
-    latency: getLatency(startTime)
-  });
-});
-
-// --------------------
+// ==============================
 app.listen(PORT, () => {
   console.log(`🚀 Caching server running on port ${PORT}`);
 });
+
