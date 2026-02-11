@@ -3,121 +3,201 @@ import crypto from "crypto";
 import cors from "cors";
 
 const app = express();
+const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(express.json());
 
-const MAX_CACHE_SIZE = 50;
-const TTL = 24 * 60 * 60 * 1000;
+/* ===============================
+   CONFIG
+================================= */
+const MAX_CACHE_SIZE = 1500;
+const TTL = 24 * 60 * 60 * 1000; // 24h
+const MODEL_COST_PER_1M = 1.0;
+const AVG_TOKENS = 3000;
 
-const cache = new Map();
+/* ===============================
+   IN MEMORY STORE
+================================= */
+const cache = new Map(); // LRU
+const stats = {
+  totalRequests: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  totalTokens: 0
+};
 
-let totalRequests = 0;
-let cacheHits = 0;
-let cacheMisses = 0;
+/* ===============================
+   HELPERS
+================================= */
+function getLatency(start) {
+  return Date.now() - start;
+}
 
-// ✅ IMPORTANT FIX: health route
-app.get("/", (req, res) => {
-  res.json({ status: "Server is running" });
-});
+function generateKey(query) {
+  return crypto.createHash("md5").update(query).digest("hex");
+}
 
-function cleanExpired() {
+function cleanupExpired() {
   const now = Date.now();
-  for (const [key, value] of cache.entries()) {
+  for (let [key, value] of cache.entries()) {
     if (now - value.timestamp > TTL) {
       cache.delete(key);
     }
   }
 }
 
-function enforceLRU() {
-  if (cache.size > MAX_CACHE_SIZE) {
-    const oldestKey = cache.keys().next().value;
-    cache.delete(oldestKey);
-  }
+function calculateSavings() {
+  const baselineCost =
+    (stats.totalRequests * AVG_TOKENS * MODEL_COST_PER_1M) / 1_000_000;
+
+  const actualCost =
+    ((stats.totalRequests - stats.cacheHits) *
+      AVG_TOKENS *
+      MODEL_COST_PER_1M) /
+    1_000_000;
+
+  return baselineCost - actualCost;
 }
 
+/* ===============================
+   ROOT
+================================= */
+app.get("/", (req, res) => {
+  const start = Date.now();
+  res.json({
+    answer: "AI Cache Server Running",
+    cached: false,
+    latency: getLatency(start)
+  });
+});
+
+/* ===============================
+   MAIN ENDPOINT
+================================= */
 app.post("/", async (req, res) => {
   const start = Date.now();
-  totalRequests++;
+  const { query } = req.body;
 
-  const query = req.body.query;
   if (!query) {
-    return res.status(400).json({ error: "Query required" });
-  }
-
-  cleanExpired();
-
-  const key = crypto.createHash("md5").update(query).digest("hex");
-
-  if (cache.has(key)) {
-    cacheHits++;
-
-    const cached = cache.get(key);
-
-    cache.delete(key);
-    cache.set(key, cached); // LRU refresh
-
-    return res.json({
-      answer: cached.answer,
-      fromCache: true,
-      latency: Date.now() - start
+    return res.status(400).json({
+      answer: "Query is required",
+      cached: false,
+      latency: getLatency(start)
     });
   }
 
-  cacheMisses++;
+  stats.totalRequests++;
+  stats.totalTokens += AVG_TOKENS;
 
-  const answer = `AI response for: ${query}`;
+  cleanupExpired();
+
+  const key = generateKey(query);
+
+  // EXACT MATCH CACHE
+  if (cache.has(key)) {
+    const entry = cache.get(key);
+
+    // LRU refresh
+    cache.delete(key);
+    cache.set(key, entry);
+
+    stats.cacheHits++;
+
+    return res.json({
+      answer: entry.answer,
+      cached: true,
+      latency: getLatency(start),
+      cacheKey: key
+    });
+  }
+
+  // Simulate LLM latency
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  const answer = `Summary of document: ${query}`;
+
+  // LRU eviction
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
 
   cache.set(key, {
     answer,
     timestamp: Date.now()
   });
 
-  enforceLRU();
+  stats.cacheMisses++;
 
   res.json({
     answer,
-    fromCache: false,
-    latency: Date.now() - start
+    cached: false,
+    latency: getLatency(start),
+    cacheKey: key
   });
 });
 
-app.get("/analytics", (req, res) => {
+/* ===============================
+   ANALYTICS BUILDER
+================================= */
+function buildAnalytics() {
   const hitRate =
-    totalRequests === 0 ? 0 : cacheHits / totalRequests;
+    stats.totalRequests === 0
+      ? 0
+      : stats.cacheHits / stats.totalRequests;
 
-  const costSavings = cacheHits * 0.002;
-  const savingsPercent =
-    totalRequests === 0 ? 0 : (cacheHits / totalRequests) * 100;
-
-  res.json({
-    totalRequests,
-    cacheHits,
-    cacheMisses,
-    cacheSize: cache.size,
+  return {
     hitRate,
-    costSavings,
-    savingsPercent,
+    totalRequests: stats.totalRequests,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.cacheMisses,
+    cacheSize: cache.size,
+    costSavings: Number(calculateSavings().toFixed(2)),
+    savingsPercent: hitRate * 100,
     strategies: [
-      "exact match caching (MD5 hash)",
+      "exact match caching (MD5)",
       "LRU eviction",
       "TTL expiration (24h)"
     ]
+  };
+}
+
+/* ===============================
+   GET ANALYTICS
+================================= */
+app.get("/analytics", (req, res) => {
+  const start = Date.now();
+  res.json({
+    response: buildAnalytics(),
+    cached: false,
+    latency: getLatency(start)
   });
 });
 
+/* ===============================
+   POST ANALYTICS (Reset + Return)
+================================= */
 app.post("/analytics", (req, res) => {
-  totalRequests = 0;
-  cacheHits = 0;
-  cacheMisses = 0;
+  const start = Date.now();
+
+  // Reset stats
+  stats.totalRequests = 0;
+  stats.cacheHits = 0;
+  stats.cacheMisses = 0;
+  stats.totalTokens = 0;
   cache.clear();
 
-  res.json({ message: "Analytics reset successful" });
+  res.json({
+    response: buildAnalytics(),
+    cached: false,
+    latency: getLatency(start)
+  });
 });
 
-const PORT = process.env.PORT || 3000;
-
+/* ===============================
+   START SERVER
+================================= */
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
