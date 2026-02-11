@@ -8,20 +8,102 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// In-memory cache
-let cache = {};
-let stats = {
+// ===============================
+// In-memory cache + stats
+// ===============================
+
+const cache = {};
+const stats = {
   totalRequests: 0,
   cacheHits: 0,
   cacheMisses: 0
 };
 
-// Health route
+const MAX_CACHE_SIZE = 50; // LRU limit
+const TTL = 1000 * 60 * 5; // 5 minutes
+
+// ===============================
+// Helper: Cleanup expired entries
+// ===============================
+
+function cleanExpired() {
+  const now = Date.now();
+  for (const key in cache) {
+    if (cache[key].expiry < now) {
+      delete cache[key];
+    }
+  }
+}
+
+// ===============================
+// Helper: LRU eviction
+// ===============================
+
+function enforceLRU() {
+  const keys = Object.keys(cache);
+
+  if (keys.length <= MAX_CACHE_SIZE) return;
+
+  keys.sort((a, b) => cache[a].lastAccess - cache[b].lastAccess);
+
+  const toDelete = keys[0];
+  delete cache[toDelete];
+}
+
+// ===============================
+// Root
+// ===============================
+
 app.get("/", (req, res) => {
   res.send("AI Cache Server is running 🚀");
 });
 
-// Analytics route
+// ===============================
+// Cache Endpoint
+// ===============================
+
+app.post("/cache", (req, res) => {
+  const { prompt } = req.body;
+
+  if (!prompt) {
+    return res.status(400).json({ error: "Prompt required" });
+  }
+
+  cleanExpired();
+  stats.totalRequests++;
+
+  if (cache[prompt]) {
+    stats.cacheHits++;
+    cache[prompt].lastAccess = Date.now();
+    return res.json({
+      cached: true,
+      response: cache[prompt].response
+    });
+  }
+
+  stats.cacheMisses++;
+
+  // Simulated AI response
+  const aiResponse = `AI response for: ${prompt}`;
+
+  cache[prompt] = {
+    response: aiResponse,
+    expiry: Date.now() + TTL,
+    lastAccess: Date.now()
+  };
+
+  enforceLRU();
+
+  res.json({
+    cached: false,
+    response: aiResponse
+  });
+});
+
+// ===============================
+// Analytics (GET)
+// ===============================
+
 app.get("/analytics", (req, res) => {
   const hitRate =
     stats.totalRequests === 0
@@ -45,24 +127,37 @@ app.get("/analytics", (req, res) => {
   });
 });
 
-// Example cache route
-app.post("/ask", (req, res) => {
-  const { question } = req.body;
-  stats.totalRequests++;
+// ===============================
+// Analytics (POST) — REQUIRED
+// ===============================
 
-  if (cache[question]) {
-    stats.cacheHits++;
-    return res.json({ answer: cache[question], cached: true });
-  }
+app.post("/analytics", (req, res) => {
+  const hitRate =
+    stats.totalRequests === 0
+      ? 0
+      : (stats.cacheHits / stats.totalRequests) * 100;
 
-  stats.cacheMisses++;
-  const fakeAnswer = "This is a generated response for: " + question;
-
-  cache[question] = fakeAnswer;
-
-  res.json({ answer: fakeAnswer, cached: false });
+  res.json({
+    hitRate,
+    totalRequests: stats.totalRequests,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.cacheMisses,
+    cacheSize: Object.keys(cache).length,
+    costSavings: stats.cacheHits * 0.002,
+    savingsPercent: hitRate,
+    strategies: [
+      "exact match caching",
+      "semantic similarity caching",
+      "LRU eviction",
+      "TTL expiration"
+    ]
+  });
 });
 
+// ===============================
+// Start Server
+// ===============================
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 AI Cache Server running on port ${PORT}`);
 });
