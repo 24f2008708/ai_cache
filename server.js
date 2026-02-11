@@ -1,179 +1,172 @@
 import express from "express";
-import crypto from "crypto";
 import cors from "cors";
+import crypto from "crypto";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
 app.use(cors());
 app.use(express.json());
 
-/* ================= CONFIG ================= */
-const MAX_CACHE_SIZE = 1500;
+const PORT = process.env.PORT || 3000;
+
+/* ------------------------------
+   CONFIG
+------------------------------ */
+
 const TTL = 24 * 60 * 60 * 1000; // 24 hours
-const MODEL_COST_PER_1M = 1.0;
+const MAX_CACHE_SIZE = 1500;
+const MODEL_COST_PER_MILLION = 1.0;
 const AVG_TOKENS = 3000;
 
-/* ================= STORAGE ================= */
-const cache = new Map(); // LRU
+/* ------------------------------
+   IN-MEMORY CACHE (LRU via Map)
+------------------------------ */
+
+const cache = new Map();
+
 const stats = {
   totalRequests: 0,
   cacheHits: 0,
   cacheMisses: 0
 };
 
-/* ================= HELPERS ================= */
-function generateKey(query) {
-  return crypto.createHash("md5").update(query).digest("hex");
+/* ------------------------------
+   UTILITIES
+------------------------------ */
+
+function getLatency(start) {
+  const diff = Date.now() - start;
+  return diff <= 0 ? 1 : diff;
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function md5(input) {
+  return crypto.createHash("md5").update(input).digest("hex");
 }
 
-function cleanupExpired() {
+function cleanExpired() {
   const now = Date.now();
-  for (let [key, value] of cache.entries()) {
+  for (const [key, value] of cache.entries()) {
     if (now - value.timestamp > TTL) {
       cache.delete(key);
     }
   }
 }
 
-function calculateSavings() {
-  const baseline =
-    (stats.totalRequests * AVG_TOKENS * MODEL_COST_PER_1M) / 1_000_000;
-
-  const actual =
-    ((stats.totalRequests - stats.cacheHits) *
-      AVG_TOKENS *
-      MODEL_COST_PER_1M) /
-    1_000_000;
-
-  return Number((baseline - actual).toFixed(2));
+function enforceLRU() {
+  while (cache.size > MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
 }
 
-/* ================= ROOT ================= */
+/* ------------------------------
+   ROOT ENDPOINT (IMPORTANT)
+------------------------------ */
+
 app.get("/", (req, res) => {
   res.json({
     answer: "AI Cache Server Running",
     cached: false,
-    latency: 5
+    latency: 1
   });
 });
 
-/* ================= MAIN ENDPOINT ================= */
+/* ------------------------------
+   MAIN CACHE ENDPOINT
+------------------------------ */
+
 app.post("/", async (req, res) => {
+  const startTime = Date.now();
   const { query } = req.body;
 
   if (!query) {
     return res.status(400).json({
       answer: "Query is required",
       cached: false,
-      latency: 5
+      latency: getLatency(startTime)
     });
   }
 
   stats.totalRequests++;
-  cleanupExpired();
 
-  const key = generateKey(query);
+  cleanExpired();
 
-  /* ===== CACHE HIT ===== */
+  const key = md5(query);
+
+  // -------- CACHE HIT --------
   if (cache.has(key)) {
+    stats.cacheHits++;
+
     const entry = cache.get(key);
 
-    // LRU refresh
+    // LRU update (move to end)
     cache.delete(key);
     cache.set(key, entry);
-
-    stats.cacheHits++;
 
     return res.json({
       answer: entry.answer,
       cached: true,
-      latency: 5,          // ALWAYS fast
+      latency: getLatency(startTime),
       cacheKey: key
     });
   }
 
-  /* ===== CACHE MISS ===== */
+  // -------- CACHE MISS --------
   stats.cacheMisses++;
 
-  await sleep(600);        // Simulated LLM delay
+  // 🔥 CRITICAL: simulate slow LLM call
+  await new Promise(resolve => setTimeout(resolve, 180));
 
-  const answer = `Summary of document: ${query}`;
-
-  // LRU eviction
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const oldestKey = cache.keys().next().value;
-    cache.delete(oldestKey);
-  }
+  const generatedAnswer = `Summary of document: ${query}`;
 
   cache.set(key, {
-    answer,
+    answer: generatedAnswer,
     timestamp: Date.now()
   });
 
+  enforceLRU();
+
   return res.json({
-    answer,
+    answer: generatedAnswer,
     cached: false,
-    latency: 600,          // ALWAYS slow
+    latency: getLatency(startTime),
     cacheKey: key
   });
 });
 
-/* ================= ANALYTICS ================= */
+/* ------------------------------
+   ANALYTICS ENDPOINT
+------------------------------ */
+
 app.get("/analytics", (req, res) => {
   const hitRate =
     stats.totalRequests === 0
       ? 0
       : stats.cacheHits / stats.totalRequests;
 
+  const costSavings =
+    (stats.cacheHits * AVG_TOKENS * MODEL_COST_PER_MILLION) /
+    1_000_000;
+
   res.json({
-    hitRate,
+    hitRate: Number(hitRate.toFixed(2)),
     totalRequests: stats.totalRequests,
     cacheHits: stats.cacheHits,
     cacheMisses: stats.cacheMisses,
     cacheSize: cache.size,
-    costSavings: calculateSavings(),
-    savingsPercent: hitRate * 100,
+    costSavings: Number(costSavings.toFixed(2)),
+    savingsPercent: Number((hitRate * 100).toFixed(0)),
     strategies: [
       "exact match caching (MD5)",
       "LRU eviction",
       "TTL expiration (24h)"
-    ],
-    cached: false,
-    latency: 5
+    ]
   });
 });
 
-/* ================= RESET ANALYTICS ================= */
-app.post("/analytics", (req, res) => {
-  stats.totalRequests = 0;
-  stats.cacheHits = 0;
-  stats.cacheMisses = 0;
-  cache.clear();
+/* ------------------------------
+   START SERVER
+------------------------------ */
 
-  res.json({
-    hitRate: 0,
-    totalRequests: 0,
-    cacheHits: 0,
-    cacheMisses: 0,
-    cacheSize: 0,
-    costSavings: 0,
-    savingsPercent: 0,
-    strategies: [
-      "exact match caching (MD5)",
-      "LRU eviction",
-      "TTL expiration (24h)"
-    ],
-    cached: false,
-    latency: 5
-  });
-});
-
-/* ================= START SERVER ================= */
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Caching server running on port ${PORT}`);
 });
