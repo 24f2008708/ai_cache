@@ -8,31 +8,24 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-/* ===============================
-   CONFIG
-================================= */
+/* ================= CONFIG ================= */
 const MAX_CACHE_SIZE = 1500;
-const TTL = 24 * 60 * 60 * 1000; // 24 hours
+const TTL = 24 * 60 * 60 * 1000;
 const MODEL_COST_PER_1M = 1.0;
 const AVG_TOKENS = 3000;
 
-/* ===============================
-   MEMORY STORE
-================================= */
-const cache = new Map(); // LRU via Map
+/* ================= STORAGE ================= */
+const cache = new Map();
 const stats = {
   totalRequests: 0,
   cacheHits: 0,
-  cacheMisses: 0,
-  totalTokens: 0
+  cacheMisses: 0
 };
 
-/* ===============================
-   HELPERS
-================================= */
+/* ================= HELPERS ================= */
 function getLatency(start) {
   const diff = Date.now() - start;
-  return diff <= 0 ? 1 : diff; // NEVER return 0
+  return diff <= 0 ? 1 : diff;
 }
 
 function generateKey(query) {
@@ -61,31 +54,7 @@ function calculateSavings() {
   return Number((baseline - actual).toFixed(2));
 }
 
-function buildAnalytics() {
-  const hitRate =
-    stats.totalRequests === 0
-      ? 0
-      : stats.cacheHits / stats.totalRequests;
-
-  return {
-    hitRate,
-    totalRequests: stats.totalRequests,
-    cacheHits: stats.cacheHits,
-    cacheMisses: stats.cacheMisses,
-    cacheSize: cache.size,
-    costSavings: calculateSavings(),
-    savingsPercent: hitRate * 100,
-    strategies: [
-      "exact match caching (MD5)",
-      "LRU eviction",
-      "TTL expiration (24h)"
-    ]
-  };
-}
-
-/* ===============================
-   ROOT CHECK
-================================= */
+/* ================= ROOT ================= */
 app.get("/", (req, res) => {
   const start = Date.now();
   res.json({
@@ -95,9 +64,7 @@ app.get("/", (req, res) => {
   });
 });
 
-/* ===============================
-   MAIN QUERY ENDPOINT
-================================= */
+/* ================= MAIN ENDPOINT ================= */
 app.post("/", async (req, res) => {
   const start = Date.now();
   const { query } = req.body;
@@ -111,8 +78,6 @@ app.post("/", async (req, res) => {
   }
 
   stats.totalRequests++;
-  stats.totalTokens += AVG_TOKENS;
-
   cleanupExpired();
 
   const key = generateKey(query);
@@ -121,7 +86,7 @@ app.post("/", async (req, res) => {
   if (cache.has(key)) {
     const entry = cache.get(key);
 
-    // Refresh LRU
+    // LRU refresh
     cache.delete(key);
     cache.set(key, entry);
 
@@ -135,12 +100,12 @@ app.post("/", async (req, res) => {
     });
   }
 
-  // Simulated LLM latency (for miss)
+  // Simulated LLM delay
   await new Promise(resolve => setTimeout(resolve, 500));
 
   const answer = `Summary of document: ${query}`;
 
-  // LRU Eviction
+  // LRU eviction
   if (cache.size >= MAX_CACHE_SIZE) {
     const oldestKey = cache.keys().next().value;
     cache.delete(oldestKey);
@@ -161,40 +126,61 @@ app.post("/", async (req, res) => {
   });
 });
 
-/* ===============================
-   GET ANALYTICS
-================================= */
+/* ================= ANALYTICS ================= */
 app.get("/analytics", (req, res) => {
   const start = Date.now();
+
+  const hitRate =
+    stats.totalRequests === 0
+      ? 0
+      : stats.cacheHits / stats.totalRequests;
+
   res.json({
-    response: buildAnalytics(),
+    hitRate,
+    totalRequests: stats.totalRequests,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.cacheMisses,
+    cacheSize: cache.size,
+    costSavings: calculateSavings(),
+    savingsPercent: hitRate * 100,
+    strategies: [
+      "exact match caching (MD5)",
+      "LRU eviction",
+      "TTL expiration (24h)"
+    ],
     cached: false,
     latency: getLatency(start)
   });
 });
 
-/* ===============================
-   POST ANALYTICS (RESET + RETURN)
-================================= */
+/* ================= RESET ANALYTICS ================= */
 app.post("/analytics", (req, res) => {
   const start = Date.now();
 
   stats.totalRequests = 0;
   stats.cacheHits = 0;
   stats.cacheMisses = 0;
-  stats.totalTokens = 0;
   cache.clear();
 
   res.json({
-    response: buildAnalytics(),
+    hitRate: 0,
+    totalRequests: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    cacheSize: 0,
+    costSavings: 0,
+    savingsPercent: 0,
+    strategies: [
+      "exact match caching (MD5)",
+      "LRU eviction",
+      "TTL expiration (24h)"
+    ],
     cached: false,
     latency: getLatency(start)
   });
 });
 
-/* ===============================
-   START SERVER
-================================= */
+/* ================= START ================= */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
