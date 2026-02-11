@@ -39,7 +39,8 @@ app.post("/", (req, res) => {
 
   if (!query) {
     return res.status(400).json({
-      error: "Query is required",
+      response: { error: "Query is required" }, // wrapped in "response"
+      cached: false,
       latency: getLatency(startTime)
     });
   }
@@ -96,12 +97,13 @@ function buildAnalytics() {
 }
 
 // --------------------
-// ANALYTICS
+// ANALYTICS ENDPOINTS
 // --------------------
 app.get("/analytics", (req, res) => {
   const startTime = Date.now();
+  const analytics = buildAnalytics();
   res.json({
-    ...buildAnalytics(),
+    response: analytics, // wrapped in "response"
     cached: false,
     latency: getLatency(startTime)
   });
@@ -109,8 +111,9 @@ app.get("/analytics", (req, res) => {
 
 app.post("/analytics", (req, res) => {
   const startTime = Date.now();
+  const analytics = buildAnalytics();
   res.json({
-    ...buildAnalytics(),
+    response: analytics, // wrapped in "response"
     cached: false,
     latency: getLatency(startTime)
   });
@@ -120,4 +123,3 @@ app.post("/analytics", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Caching server running on port ${PORT}`);
 });
-
